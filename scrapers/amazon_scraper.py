@@ -353,24 +353,19 @@ def scrape_search(keyword: str, max_products: int = 20) -> List[Dict]:
 
 # ---------------------------------------------------------------------------
 # Scrape reviews for an ASIN
+# Amazon's /product-reviews/ page now requires sign-in; reviews are still
+# embedded on the product page itself (typically 8 preview reviews).
 # ---------------------------------------------------------------------------
 def scrape_reviews(asin: str, max_pages: int = 3) -> List[str]:
+    url = f"{AMAZON['base_url']}/dp/{asin}"
+    soup = _get(url)
     reviews = []
-    for page in range(1, max_pages + 1):
-        url = (
-            f"{AMAZON['base_url']}/product-reviews/{asin}"
-            f"?reviewerType=all_reviews&pageNumber={page}&sortBy=recent"
-        )
-        soup = _get(url)
-        if not soup:
-            break
 
+    if soup and not _is_blocked(soup):
         for el in soup.select("[data-hook='review-body'] span"):
             text = el.get_text(strip=True)
             if len(text) > 30:
                 reviews.append(text)
-
-        _sleep()
 
     print(f"  [Scraper] Got {len(reviews)} reviews for {asin}")
     return reviews
