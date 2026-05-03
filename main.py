@@ -20,6 +20,9 @@ from pathlib import Path
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).parent))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from config import SEED_KEYWORDS, ANTHROPIC
 from storage.database import init_db, save_product, save_analysis, get_winners, log_run
 from scrapers.amazon_scraper import (
