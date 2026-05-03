@@ -42,11 +42,12 @@ def estimate_monthly_revenue(price: float, review_count: int, bsr: int) -> float
     return round(monthly_revenue, 2)
 
 
-def check_criteria(product: Dict) -> Tuple[bool, list]:
+def check_criteria(product: Dict) -> Tuple[bool, list, list]:
     """
-    Returns (passed: bool, reasons: list of failures).
+    Returns (passed: bool, failures: list, checks: list of (passed, label, detail)).
     """
     failures = []
+    checks = []  # (passed: bool, label: str, detail: str)
     c = CRITERIA
 
     price = product.get("price") or 0
@@ -61,34 +62,66 @@ def check_criteria(product: Dict) -> Tuple[bool, list]:
 
     # --- Price range ---
     if price < c["min_price"]:
-        failures.append(f"Price ${price} < min ${c['min_price']}")
+        msg = f"${price} < min ${c['min_price']}"
+        failures.append(f"Price {msg}")
+        checks.append((False, "Price", msg))
     elif price > c["max_price"]:
-        failures.append(f"Price ${price} > max ${c['max_price']}")
+        msg = f"${price} > max ${c['max_price']}"
+        failures.append(f"Price {msg}")
+        checks.append((False, "Price", msg))
+    else:
+        checks.append((True, "Price", f"${price} in [${c['min_price']}–${c['max_price']}]"))
 
     # --- Review count (competition gauge) ---
     if reviews > c["max_reviews"]:
-        failures.append(f"Reviews {reviews} > max {c['max_reviews']}")
+        msg = f"{reviews} > max {c['max_reviews']}"
+        failures.append(f"Reviews {msg}")
+        checks.append((False, "Reviews", msg))
+    else:
+        checks.append((True, "Reviews", f"{reviews} ≤ max {c['max_reviews']}"))
 
     # --- BSR ---
     if bsr > c["max_bsr"]:
-        failures.append(f"BSR {bsr} > max {c['max_bsr']}")
-    if bsr < c["min_bsr"]:
-        failures.append(f"BSR {bsr} < min {c['min_bsr']}")
+        msg = f"{bsr} > max {c['max_bsr']}"
+        failures.append(f"BSR {msg}")
+        checks.append((False, "BSR", msg))
+    elif bsr < c["min_bsr"]:
+        msg = f"{bsr} < min {c['min_bsr']}"
+        failures.append(f"BSR {msg}")
+        checks.append((False, "BSR", msg))
+    else:
+        checks.append((True, "BSR", f"{bsr} in [{c['min_bsr']}–{c['max_bsr']}]"))
 
     # --- Estimated revenue ---
     if revenue < c["min_monthly_revenue"]:
-        failures.append(f"Est. revenue ${revenue:.0f} < min ${c['min_monthly_revenue']}")
+        msg = f"${revenue:.0f} < min ${c['min_monthly_revenue']}"
+        failures.append(f"Est. revenue {msg}")
+        checks.append((False, "Est. Revenue", msg))
+    else:
+        checks.append((True, "Est. Revenue", f"${revenue:.0f} ≥ min ${c['min_monthly_revenue']}"))
 
     # --- Rating sweet spot (not too high = no room to improve) ---
     if rating > 0 and rating < c["min_rating"]:
-        failures.append(f"Rating {rating} < min {c['min_rating']}")
+        msg = f"{rating} < min {c['min_rating']}"
+        failures.append(f"Rating {msg}")
+        checks.append((False, "Rating", msg))
+    elif rating == 0:
+        checks.append((True, "Rating", "N/A (skipped)"))
+    else:
+        checks.append((True, "Rating", f"{rating} ≥ min {c['min_rating']}"))
 
     # --- Weight ---
     if weight and weight > c["max_weight_lbs"]:
-        failures.append(f"Weight {weight}lbs > max {c['max_weight_lbs']}lbs")
+        msg = f"{weight}lbs > max {c['max_weight_lbs']}lbs"
+        failures.append(f"Weight {msg}")
+        checks.append((False, "Weight", msg))
+    elif weight:
+        checks.append((True, "Weight", f"{weight}lbs ≤ max {c['max_weight_lbs']}lbs"))
+    else:
+        checks.append((True, "Weight", "N/A (skipped)"))
 
     passed = len(failures) == 0
-    return passed, failures
+    return passed, failures, checks
 
 
 def filter_products(products: list) -> Tuple[list, list]:
@@ -100,7 +133,7 @@ def filter_products(products: list) -> Tuple[list, list]:
     failed = []
 
     for p in products:
-        ok, reasons = check_criteria(p)
+        ok, reasons, _checks = check_criteria(p)
         p["passed_filter"] = ok
         p["filter_failures"] = reasons
         if ok:

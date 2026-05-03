@@ -1,7 +1,7 @@
 # 🎯 Amazon PL Product Hunter
 
 Automated Amazon private label product hunting using Python + Claude AI.
-**Estimated cost: ~$20–40/month** (vs $150+ for no-code tools).
+**Estimated cost: ~$20–40/month**
 
 ---
 
@@ -9,7 +9,7 @@ Automated Amazon private label product hunting using Python + Claude AI.
 
 ```
 amazon-pl-hunter/
-├── config.py                    ← YOUR SETTINGS (edit this first)
+├── config.py                    ← SETTINGS (edit this first)
 ├── main.py                      ← Run this
 ├── requirements.txt
 ├── scrapers/

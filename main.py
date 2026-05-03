@@ -14,7 +14,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure project root is on path
@@ -81,8 +81,8 @@ def step2_enrich(products: list) -> list:
     return enriched
 
 
-def step3_filter(products: list) -> list:
-    """Apply criteria filters. Returns only passed products."""
+def step3_filter(products: list):
+    """Apply criteria filters. Returns (passed, failed)."""
     print(f"\n{'='*60}")
     print(f"STEP 3 — Filtering {len(products)} products")
     print(f"{'='*60}")
@@ -97,7 +97,7 @@ def step3_filter(products: list) -> list:
     for p in passed:
         print_filter_summary(p)
 
-    return passed
+    return passed, failed
 
 
 def step4_analyze(products: list) -> list:
@@ -138,6 +138,63 @@ def step4_analyze(products: list) -> list:
             alert_winner(product, result)
 
     return winners
+
+
+def export_run_report(passed: list, failed: list, keywords: list, timestamp: str):
+    """Write a human-readable text report of passed and failed products."""
+    lines = []
+    sep = "=" * 60
+
+    lines += [
+        sep,
+        "AMAZON PL HUNTER — FILTER REPORT",
+        f"Generated:  {timestamp}",
+        f"Keywords:   {', '.join(keywords)}",
+        sep,
+        "",
+        "SUMMARY",
+        f"  Total:          {len(passed) + len(failed)}",
+        f"  Passed filter:  {len(passed)}",
+        f"  Failed filter:  {len(failed)}",
+        "",
+    ]
+
+    lines += [sep, f"PASSED ({len(passed)})", sep, ""]
+    for i, p in enumerate(passed, 1):
+        lines += [
+            f"[{i}] ASIN:     {p.get('asin')}",
+            f"    Title:    {(p.get('title') or 'N/A')[:70]}",
+            f"    Price:    ${p.get('price')}",
+            f"    Reviews:  {p.get('review_count'):,}" if p.get("review_count") else "    Reviews:  N/A",
+            f"    BSR:      {p.get('bsr'):,}" if p.get("bsr") else "    BSR:      N/A",
+            f"    Rating:   {p.get('rating')} ★",
+            f"    Est Rev:  ${p.get('monthly_revenue', 0):.0f}/mo",
+            f"    URL:      https://www.amazon.com/dp/{p.get('asin')}",
+            "",
+        ]
+
+    lines += [sep, f"FAILED ({len(failed)})", sep, ""]
+    for i, p in enumerate(failed, 1):
+        lines += [
+            f"[{i}] ASIN:     {p.get('asin')}",
+            f"    Title:    {(p.get('title') or 'N/A')[:70]}",
+            f"    Price:    ${p.get('price')}",
+            f"    Reviews:  {p.get('review_count'):,}" if p.get("review_count") else "    Reviews:  N/A",
+            f"    BSR:      {p.get('bsr'):,}" if p.get("bsr") else "    BSR:      N/A",
+            f"    Rating:   {p.get('rating')} ★",
+            f"    Est Rev:  ${p.get('monthly_revenue', 0):.0f}/mo",
+            "    Reasons:",
+        ]
+        for reason in p.get("filter_failures", []):
+            lines.append(f"      → {reason}")
+        lines.append("")
+
+    ts_file = timestamp.replace(":", "-").replace(" ", "_")
+    path = f"data/results/filter_report_{ts_file}.txt"
+    with open(path, "w") as f:
+        f.write("\n".join(lines))
+    print(f"\n  📄 Filter report saved to: {path}")
+    return path
 
 
 def step5_report(winners: list):
@@ -193,7 +250,7 @@ def step5_report(winners: list):
 
 def run_hunt(keywords: list):
     """Run the complete product hunting pipeline."""
-    started_at = datetime.utcnow().isoformat()
+    started_at = datetime.now(timezone.utc).isoformat()
     print(f"\n🚀 Amazon PL Hunter starting at {started_at}")
     print(f"   Keywords: {keywords}")
 
@@ -203,12 +260,13 @@ def run_hunt(keywords: list):
     # Run pipeline
     raw_products = step1_collect(keywords)
     enriched = step2_enrich(raw_products)
-    passed = step3_filter(enriched)
+    passed, failed = step3_filter(enriched)
+    export_run_report(passed, failed, keywords, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     winners = step4_analyze(passed)
     step5_report(winners)
 
     # Log run
-    finished_at = datetime.utcnow().isoformat()
+    finished_at = datetime.now(timezone.utc).isoformat()
     log_run(started_at, finished_at, keywords,
             found=len(raw_products), passed=len(passed), winners=len(winners))
 

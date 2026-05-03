@@ -4,6 +4,7 @@ Uses requests + BeautifulSoup with rotating user agents.
 For heavier scraping, swap in Playwright (see comments).
 """
 
+import json
 import re
 import time
 import random
@@ -44,6 +45,8 @@ def _headers() -> Dict:
         "DNT": "1",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
+        # Force USD pricing regardless of IP geolocation
+        "Cookie": "i18n-prefs=USD; lc-acbus=en_US; sp-cdn=L5Z9:PK",
     }
 
 
@@ -75,18 +78,117 @@ def _get(url: str) -> Optional[BeautifulSoup]:
 
 
 # ---------------------------------------------------------------------------
-# Parse BSR from product page
+# Detect bot/CAPTCHA block
+# ---------------------------------------------------------------------------
+def _is_blocked(soup: BeautifulSoup) -> bool:
+    text = soup.get_text(" ", strip=True).lower()
+    return (
+        "enter the characters you see below" in text
+        or "type the characters you see in this image" in text
+        or "sorry, we just need to make sure you're not a robot" in text
+        or soup.select_one("form[action='/errors/validateCaptcha']") is not None
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parse price from product page — multiple fallback selectors
+# ---------------------------------------------------------------------------
+def _parse_price(soup: BeautifulSoup) -> Optional[float]:
+    # Strategy 1: JSON price blob embedded in page — most reliable source
+    try:
+        blob = soup.select_one(".twister-plus-buying-options-price-data")
+        if blob:
+            data = json.loads(blob.get_text(strip=True))
+            for group in data.values():
+                if isinstance(group, list) and group:
+                    entry = group[0]
+                    if entry.get("currencySymbol") == "$":
+                        amt = entry.get("priceAmount")
+                        if amt and float(amt) > 0:
+                            return float(amt)
+    except Exception:
+        pass
+
+    # Strategy 2: CSS selectors with non-USD currency guard
+    selectors = [
+        # Current layout (2024–2025)
+        "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
+        "#apex_desktop .a-price .a-offscreen",
+        ".apexPriceToPay .a-offscreen",
+        # Generic fallback
+        ".a-price .a-offscreen",
+        # Legacy selectors
+        "#priceblock_ourprice",
+        "#priceblock_dealprice",
+        "#priceblock_saleprice",
+        "#price_inside_buybox",
+    ]
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if el:
+            text = el.get_text(strip=True)
+            # Skip empty spans and non-USD currencies (PKR, EUR, GBP, etc.)
+            if not text or re.search(r'[A-Z]{2,}', text.replace("USD", "")):
+                continue
+            try:
+                raw = re.sub(r'[^\d.]', '', text.replace(",", ""))
+                val = float(raw)
+                if val > 0:
+                    return val
+            except Exception:
+                continue
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Parse BSR from product page — multiple fallback selectors
 # ---------------------------------------------------------------------------
 def _parse_bsr(soup: BeautifulSoup) -> Optional[int]:
+    # Strategy 1: new key-value layout (.po-best_sellers_rank)
     try:
-        for li in soup.select("#detailBulletsWrapper_feature_div li, #productDetails_db_sections td"):
-            text = li.get_text(" ", strip=True)
+        rank_el = soup.select_one(".po-best_sellers_rank .po-break-word")
+        if rank_el:
+            match = re.search(r"#([\d,]+)", rank_el.get_text())
+            if match:
+                return int(match.group(1).replace(",", ""))
+    except Exception:
+        pass
+
+    # Strategy 2: detail bullets and product details tables
+    selectors = (
+        "#detailBulletsWrapper_feature_div li",
+        "#productDetails_db_sections td",
+        "#productDetails_db_sections th",
+        "#productDetails_detailBullets_sections td",
+        "#productDetails_detailBullets_sections th",
+        "#prodDetails td",
+        "#prodDetails th",
+        ".a-section.a-spacing-small li",
+    )
+    try:
+        for el in soup.select(", ".join(selectors)):
+            text = el.get_text(" ", strip=True)
             if "Best Seller" in text or "Best Sellers Rank" in text:
                 match = re.search(r"#([\d,]+)", text)
                 if match:
                     return int(match.group(1).replace(",", ""))
     except Exception:
         pass
+
+    # Strategy 3: scan all spans/tds for "#N in" pattern near "Best Seller"
+    try:
+        page_text = soup.get_text(" ")
+        idx = page_text.find("Best Sellers Rank")
+        if idx == -1:
+            idx = page_text.find("Best Seller Rank")
+        if idx != -1:
+            snippet = page_text[idx:idx + 200]
+            match = re.search(r"#([\d,]+)", snippet)
+            if match:
+                return int(match.group(1).replace(",", ""))
+    except Exception:
+        pass
+
     return None
 
 
@@ -122,19 +224,20 @@ def scrape_product_page(asin: str) -> Dict:
     if not soup:
         return {}
 
+    if _is_blocked(soup):
+        print(f"  [Scraper] ⚠️  Bot/CAPTCHA block detected for {asin} — skipping")
+        return {}
+
     result = {"asin": asin, "url": url}
 
     # Title
     title_el = soup.select_one("#productTitle")
     result["title"] = title_el.get_text(strip=True) if title_el else None
 
-    # Price
-    price_el = soup.select_one(".a-price .a-offscreen")
-    if price_el:
-        try:
-            result["price"] = float(price_el.get_text(strip=True).replace("$", "").replace(",", ""))
-        except Exception:
-            pass
+    # Price — multi-selector with fallbacks
+    price = _parse_price(soup)
+    if price:
+        result["price"] = price
 
     # Rating
     rating_el = soup.select_one("span[data-hook='rating-out-of-text'], #acrPopover")
@@ -155,11 +258,16 @@ def scrape_product_page(asin: str) -> Dict:
     if cat_el:
         result["category"] = cat_el[0].get_text(strip=True)
 
-    # BSR
+    # BSR — multi-strategy with fallbacks
     result["bsr"] = _parse_bsr(soup)
 
     # Weight
     result["weight_lbs"] = _parse_weight(soup)
+
+    if not result.get("price"):
+        print(f"  [Scraper] ⚠️  Price still None for {asin} after all selectors")
+    if not result.get("bsr"):
+        print(f"  [Scraper] ⚠️  BSR still None for {asin} after all selectors")
 
     _sleep()
     return result
@@ -177,6 +285,10 @@ def scrape_search(keyword: str, max_products: int = 20) -> List[Dict]:
         print(f"  [Scraper] Failed to fetch search results for '{keyword}'")
         return []
 
+    if _is_blocked(soup):
+        print(f"  [Scraper] ⚠️  Bot/CAPTCHA block on search for '{keyword}'")
+        return []
+
     products = []
     cards = soup.select('[data-component-type="s-search-result"]')
 
@@ -190,14 +302,19 @@ def scrape_search(keyword: str, max_products: int = 20) -> List[Dict]:
             title_el = card.select_one("h2 span")
             title = title_el.get_text(strip=True) if title_el else ""
 
-            # Price
+            # Price — try multiple selectors on the search card
             price = None
-            price_el = card.select_one(".a-price .a-offscreen")
-            if price_el:
-                try:
-                    price = float(price_el.get_text(strip=True).replace("$", "").replace(",", ""))
-                except Exception:
-                    pass
+            for price_sel in (".a-price .a-offscreen", ".a-color-price", ".a-price-whole"):
+                price_el = card.select_one(price_sel)
+                if price_el:
+                    try:
+                        raw = price_el.get_text(strip=True).replace("$", "").replace(",", "").strip()
+                        val = float(raw)
+                        if val > 0:
+                            price = val
+                            break
+                    except Exception:
+                        continue
 
             # Rating
             rating = None
