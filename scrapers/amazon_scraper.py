@@ -12,7 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
 
-from config import AMAZON, SCRAPING
+from config import AMAZON, SCRAPING, PROXIES
 
 # ---------------------------------------------------------------------------
 # User Agent Pool — rotate to avoid detection
@@ -29,11 +29,11 @@ USER_AGENTS = [
     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
 ]
 
-# ---------------------------------------------------------------------------
-# Optional: pass proxy dict like {"http": "http://user:pass@host:port"}
-# Get rotating proxies from webshare.io (~$10/mo)
-# ---------------------------------------------------------------------------
-PROXY = None  # e.g. {"http": "http://...", "https": "http://..."}
+def _proxy() -> Optional[Dict]:
+    if not PROXIES:
+        return None
+    url = random.choice(PROXIES)
+    return {"http": url, "https": url}
 
 
 def _headers() -> Dict:
@@ -61,7 +61,7 @@ def _get(url: str) -> Optional[BeautifulSoup]:
             resp = requests.get(
                 url,
                 headers=_headers(),
-                proxies=PROXY,
+                proxies=_proxy(),
                 timeout=20,
             )
             if resp.status_code == 200:

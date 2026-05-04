@@ -83,6 +83,15 @@ TELEGRAM = {
     "chat_id": "",     # your chat ID
 }
 
+# --- Proxies (optional) ---
+# Add one or more rotating proxies — leave empty list to disable
+# Format: "http://user:pass@host:port"
+# Recommended provider: webshare.io (~$10/mo for rotating residential)
+PROXIES = [
+    # "http://user:pass@host:port",
+    # "http://user:pass@host:port",
+]
+
 # --- Storage ---
 DATABASE_PATH = "data/products.db"
 RESULTS_DIR = "data/results"
