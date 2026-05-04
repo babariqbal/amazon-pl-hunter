@@ -24,7 +24,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from config import SEED_KEYWORDS, ANTHROPIC
-from storage.database import init_db, save_product, save_analysis, get_winners, log_run
+from storage.database import (
+    init_db, save_product, save_analysis, get_winners, log_run,
+    get_cached_product, get_cached_analysis,
+)
 from scrapers.amazon_scraper import (
     scrape_search, scrape_product_page, scrape_reviews, get_keyword_suggestions
 )
@@ -67,7 +70,7 @@ def step1_collect(keywords: list, max_per_keyword: int = 20) -> list:
     return all_products
 
 
-def step2_enrich(products: list) -> list:
+def step2_enrich(products: list, refresh: bool = False) -> list:
     """Fetch full product page for each candidate to get BSR, weight, category."""
     print(f"\n{'='*60}")
     print(f"STEP 2 — Enriching {len(products)} products with full page data")
@@ -76,6 +79,12 @@ def step2_enrich(products: list) -> list:
     enriched = []
     for i, p in enumerate(products, 1):
         asin = p.get("asin")
+        if not refresh:
+            cached = get_cached_product(asin)
+            if cached:
+                print(f"  [{i}/{len(products)}] {asin} — cache hit (< 48h)")
+                enriched.append({**p, **cached})
+                continue
         print(f"  [{i}/{len(products)}] Enriching {asin}...")
         page_data = scrape_product_page(asin)
         merged = {**p, **{k: v for k, v in page_data.items() if v is not None}}
@@ -103,7 +112,7 @@ def step3_filter(products: list):
     return passed, failed
 
 
-def step4_analyze(products: list) -> list:
+def step4_analyze(products: list, refresh: bool = False) -> list:
     """Run AI analysis on each product that passed filters."""
     print(f"\n{'='*60}")
     print(f"STEP 4 — AI Analysis on {len(products)} products")
@@ -114,6 +123,15 @@ def step4_analyze(products: list) -> list:
     for i, product in enumerate(products, 1):
         asin = product.get("asin")
         print(f"\n  [{i}/{len(products)}] Analyzing {asin} — {product.get('title', '')[:50]}...")
+
+        if not refresh:
+            cached_analysis = get_cached_analysis(asin)
+            if cached_analysis:
+                score = cached_analysis.get("score", 0)
+                print(f"  Analysis cache hit (score: {score}/10)")
+                if score >= 7.0:
+                    winners.append({**product, **cached_analysis})
+                continue
 
         # Profitability
         profit = calculate_profitability(product)
@@ -251,7 +269,7 @@ def step5_report(winners: list):
 # ENTRY POINT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_hunt(keywords: list):
+def run_hunt(keywords: list, refresh: bool = False):
     """Run the complete product hunting pipeline."""
     started_at = datetime.now(timezone.utc).isoformat()
     print(f"\n🚀 Amazon PL Hunter starting at {started_at}")
@@ -262,10 +280,10 @@ def run_hunt(keywords: list):
 
     # Run pipeline
     raw_products = step1_collect(keywords)
-    enriched = step2_enrich(raw_products)
+    enriched = step2_enrich(raw_products, refresh=refresh)
     passed, failed = step3_filter(enriched)
     export_run_report(passed, failed, keywords, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    winners = step4_analyze(passed)
+    winners = step4_analyze(passed, refresh=refresh)
     step5_report(winners)
 
     # Log run
@@ -296,14 +314,23 @@ def print_db_winners():
         print(f"  URL: https://www.amazon.com/dp/{w['asin']}")
 
 
-def analyze_single_asin(asin: str):
-    """Analyze a single ASIN you already found."""
+def analyze_single_asin(asin: str, refresh: bool = False) -> dict | None:
+    """Analyze a single ASIN. Returns structured result dict (used by API)."""
     init_db()
     print(f"\n🔍 Analyzing single ASIN: {asin}")
+
+    if not refresh:
+        cached_product = get_cached_product(asin)
+        cached_analysis = get_cached_analysis(asin)
+        if cached_product and cached_analysis:
+            print(f"  Cache hit — returning stored result")
+            return {**cached_product, **cached_analysis}
+
     product = scrape_product_page(asin)
     if not product:
         print(f"Failed to fetch {asin}")
-        return
+        return None
+    product["asin"] = asin
 
     profit = calculate_profitability(product)
     print(format_profit_table(profit))
@@ -325,6 +352,8 @@ def analyze_single_asin(asin: str):
         except Exception:
             pass
 
+    return {**product, **result}
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Amazon PL Product Hunter")
@@ -332,12 +361,13 @@ if __name__ == "__main__":
     parser.add_argument("--keyword-file", help="File with one keyword per line")
     parser.add_argument("--asin", help="Analyze a single ASIN")
     parser.add_argument("--report", action="store_true", help="Print DB winners")
+    parser.add_argument("--refresh", action="store_true", help="Bypass 48-hour cache")
     args = parser.parse_args()
 
     if args.report:
         print_db_winners()
     elif args.asin:
-        analyze_single_asin(args.asin)
+        analyze_single_asin(args.asin, refresh=args.refresh)
     else:
         if args.keywords:
             keywords = args.keywords
@@ -347,4 +377,4 @@ if __name__ == "__main__":
         else:
             keywords = SEED_KEYWORDS
 
-        run_hunt(keywords)
+        run_hunt(keywords, refresh=args.refresh)

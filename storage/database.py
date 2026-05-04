@@ -8,6 +8,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+CACHE_TTL_HOURS = 48
+
 DB_PATH = "data/products.db"
 
 
@@ -24,6 +26,14 @@ def init_db():
     c = conn.cursor()
 
     c.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            phone       TEXT PRIMARY KEY,
+            name        TEXT,
+            state       TEXT,
+            created_at  TEXT,
+            updated_at  TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS products (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             asin            TEXT UNIQUE,
@@ -106,6 +116,8 @@ def save_analysis(asin: str, result: dict):
     conn = get_connection()
     c = conn.cursor()
     try:
+        # Replace any prior analysis for this ASIN so cache is always the latest
+        c.execute("DELETE FROM analysis WHERE asin = ?", (asin,))
         c.execute("""
             INSERT INTO analysis
             (asin, score, margin_pct, net_profit, pain_points, diff_ideas,
@@ -163,3 +175,106 @@ def log_run(started_at, finished_at, keywords, found, passed, winners):
     """, (started_at, finished_at, json.dumps(keywords), found, passed, winners))
     conn.commit()
     conn.close()
+
+
+# ── User helpers ──────────────────────────────────────────────────────────────
+
+def get_user(phone: str) -> dict | None:
+    """Return user row or None if not found."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM users WHERE phone = ?", (phone,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def upsert_user(phone: str, name: str):
+    """Create or update user record and clear pending state."""
+    now = datetime.utcnow().isoformat()
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO users (phone, name, state, created_at, updated_at)
+        VALUES (?, ?, NULL, ?, ?)
+        ON CONFLICT(phone) DO UPDATE SET
+            name       = excluded.name,
+            state      = NULL,
+            updated_at = excluded.updated_at
+    """, (phone, name, now, now))
+    conn.commit()
+    conn.close()
+
+
+def set_user_state(phone: str, state: str | None):
+    """Create a stub user row (no name yet) or update just the state field."""
+    now = datetime.utcnow().isoformat()
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO users (phone, name, state, created_at, updated_at)
+        VALUES (?, NULL, ?, ?, ?)
+        ON CONFLICT(phone) DO UPDATE SET
+            state      = excluded.state,
+            updated_at = excluded.updated_at
+    """, (phone, state, now, now))
+    conn.commit()
+    conn.close()
+
+
+# ── Cache helpers ──────────────────────────────────────────────────────────────
+
+def get_cached_product(asin: str, max_age_hours: int = CACHE_TTL_HOURS) -> dict | None:
+    """Return enriched product dict if it was scraped within max_age_hours, else None."""
+    conn = get_connection()
+    c = conn.cursor()
+    row = c.execute(
+        "SELECT raw_json FROM products WHERE asin = ? AND scraped_at >= datetime('now', ?)",
+        (asin, f"-{max_age_hours} hours"),
+    ).fetchone()
+    conn.close()
+    if row and row["raw_json"]:
+        product = json.loads(row["raw_json"])
+        # Only use cached data when the page was fully enriched (has BSR field)
+        if product.get("bsr") is not None:
+            return product
+    return None
+
+
+def get_cached_analysis(asin: str, max_age_hours: int = CACHE_TTL_HOURS) -> dict | None:
+    """Return analysis dict if it was run within max_age_hours, else None."""
+    conn = get_connection()
+    c = conn.cursor()
+    row = c.execute(
+        """SELECT * FROM analysis WHERE asin = ?
+           AND analyzed_at >= datetime('now', ?)
+           ORDER BY analyzed_at DESC LIMIT 1""",
+        (asin, f"-{max_age_hours} hours"),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    r = dict(row)
+    for field in ("pain_points", "diff_ideas", "red_flags"):
+        r[field] = json.loads(r.get(field) or "[]")
+    return r
+
+
+def clear_asin_cache(asin: str):
+    """Delete all product and analysis records for an ASIN."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM analysis WHERE asin = ?", (asin,))
+    c.execute("DELETE FROM products WHERE asin = ?", (asin,))
+    conn.commit()
+    conn.close()
+
+
+def clear_keyword_cache(keyword: str) -> list:
+    """Delete products (and their analyses) that were scraped under a given keyword."""
+    conn = get_connection()
+    c = conn.cursor()
+    rows = c.execute("SELECT asin FROM products WHERE keyword = ?", (keyword,)).fetchall()
+    asins = [r["asin"] for r in rows]
+    for asin in asins:
+        c.execute("DELETE FROM analysis WHERE asin = ?", (asin,))
+    c.execute("DELETE FROM products WHERE keyword = ?", (keyword,))
+    conn.commit()
+    conn.close()
+    return asins
