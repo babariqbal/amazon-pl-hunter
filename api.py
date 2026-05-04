@@ -85,9 +85,13 @@ def help_info():
         "formatted_message": (
             "*⚡ Quick commands:*\n\n"
             "•⁠ ⁠`asin B0XXXXXXXXX` — analyse a product\n"
-            "•⁠ `⁠hunt bamboo organizer` — find top 3 winning products for idea\n"
+            "•⁠ `⁠hunt bamboo organizer` — find top 3 winning products for idea\n\n"
+            "*🔄 Refresh (bypass cache):*\n"
             "•⁠ ⁠`refresh asin B0XXXXXXXXX` — force re-scrape of specific product\n"
             "•⁠ ⁠`refresh hunt bamboo organizer` — force re-scrape of specific idea\n\n"
+            "*🗑 Clear cache:*\n"
+            "•⁠ ⁠`clear asin B0XXXXXXXXX` — delete cached data for a product\n"
+            "•⁠ ⁠`clear hunt bamboo organizer` — delete cached data for a keyword\n\n"
             "Or just ask me anything about Amazon Private Label!"
         )
     }
