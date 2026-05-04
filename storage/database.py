@@ -266,6 +266,19 @@ def clear_asin_cache(asin: str):
     conn.close()
 
 
+def clear_all_cache() -> dict:
+    """Delete all products and analyses from the cache."""
+    conn = get_connection()
+    c = conn.cursor()
+    analyses = c.execute("SELECT COUNT(*) FROM analysis").fetchone()[0]
+    products = c.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+    c.execute("DELETE FROM analysis")
+    c.execute("DELETE FROM products")
+    conn.commit()
+    conn.close()
+    return {"products": products, "analyses": analyses}
+
+
 def clear_keyword_cache(keyword: str) -> list:
     """Delete products (and their analyses) that were scraped under a given keyword."""
     conn = get_connection()

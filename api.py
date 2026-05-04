@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from storage.database import (
     init_db, save_product, save_analysis,
     get_cached_product, get_cached_analysis,
-    clear_asin_cache, clear_keyword_cache,
+    clear_asin_cache, clear_keyword_cache, clear_all_cache,
     get_user, upsert_user, set_user_state,
 )
 from scrapers.amazon_scraper import (
@@ -91,7 +91,8 @@ def help_info():
             "•⁠ ⁠`refresh hunt bamboo organizer` — force re-scrape of specific idea\n\n"
             "*🗑 Clear cache:*\n"
             "•⁠ ⁠`clear asin B0XXXXXXXXX` — delete cached data for a product\n"
-            "•⁠ ⁠`clear hunt bamboo organizer` — delete cached data for a keyword\n\n"
+            "•⁠ ⁠`clear hunt bamboo organizer` — delete cached data for a keyword\n"
+            "•⁠ ⁠`clear all` — wipe entire cache\n\n"
             "Or just ask me anything about Amazon Private Label!"
         )
     }
@@ -239,7 +240,13 @@ def clear_asin(asin: str):
 @app.delete("/cache/hunt/{keyword}")
 def clear_hunt(keyword: str):
     asins = clear_keyword_cache(keyword)
-    return {"message": f"Cache cleared for '{keyword}' — {len(asins)} product(s)."}
+    return {"message": f"Cache cleared for *{keyword}* — {len(asins)} product(s)."}
+
+
+@app.delete("/cache/all")
+def clear_all():
+    counts = clear_all_cache()
+    return {"message": f"All cache cleared — {counts['products']} products and {counts['analyses']} analyses removed"}
 
 
 # ── Response formatters ────────────────────────────────────────────────────────

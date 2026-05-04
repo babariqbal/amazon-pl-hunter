@@ -1,0 +1,1263 @@
+{
+  "name": "Amazon PL Hunter",
+  "nodes": [
+    {
+      "parameters": {
+        "multipleMethods": true,
+        "path": "whatsapp-pl-hunter",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -48,
+        360
+      ],
+      "id": "89c5ba47-680e-4e36-8035-ab43f5ebcb64",
+      "name": "WhatsApp Webhook",
+      "webhookId": "d2c2d756-8326-41cb-a705-ab9bd9c9c63b"
+    },
+    {
+      "parameters": {
+        "jsCode": "const VERIFY_TOKEN = 'plhunter26';\n\n// Get query params from incoming webhook\nconst query = $input.first().json.query;\n\nconst mode      = query['hub.mode'];\nconst token     = query['hub.verify_token'];\nconst challenge = query['hub.challenge'];\n\n// Verification request from Meta (GET)\nif (mode === 'subscribe' && token === VERIFY_TOKEN) {\n  return [{ json: { statusCode: 200, body: challenge } }];\n} else {\n  return [{ json: { statusCode: 403, body: 'Forbidden' } }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        264
+      ],
+      "id": "7a92a964-83c7-407e-9113-6b798d3d9b4d",
+      "name": "Subscribe Webhook",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        400,
+        264
+      ],
+      "id": "589ce528-78df-4862-b225-60aa76742a12",
+      "name": "Respond to Subscribe"
+    },
+    {
+      "parameters": {
+        "jsCode": "const json = $input.first().json;\n\n// Extract the actual WhatsApp message\nconst entry = json?.body?.entry?.[0];\nconst change = entry?.changes?.[0];\nconst message = change?.value?.messages?.[0];\n\nif (!message) {\n  return [{ json: { skip: true } }];\n}\n\nconst text = message.text?.body?.trim() || '';\n\nreturn [{\n  json: {\n    from: message.from,\n    messageId: message.id,\n    text,\n    timestamp: message.timestamp,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        456
+      ],
+      "id": "d5544a09-859c-40b1-a1a2-2c228e1935c9",
+      "name": "Extract Message"
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $('Extract Message').first().json.text.toLowerCase();\n\nlet command = \"chat\";\nlet payload = \"\";\nlet refresh = false;\n\nif (msg === \"help\") {\n  command = \"help\";\n} else if (/^refresh asin /i.test(msg)) {\n  command = \"asin\";\n  payload = msg.split(\" \")[2].toUpperCase();\n  refresh = true;\n} else if (/^refresh hunt /i.test(msg)) {\n  command = \"hunt\";\n  payload = msg.replace(/^refresh hunt /i, \"\").trim();\n  refresh = true;\n} else if (/^asin /i.test(msg)) {\n  command = \"asin\";\n  payload = msg.split(\" \")[1].toUpperCase();\n} else if (/^hunt /i.test(msg)) {\n  command = \"hunt\";\n  payload = msg.replace(/^hunt /i, \"\").trim();\n} else if (/^clear all$/i.test(msg)) {\n  command = \"clear_all\";\n} else if (/^clear asin /i.test(msg)) {\n  command = \"clear_asin\";\n  payload = msg.split(\" \")[2].toUpperCase();\n} else if (/^clear hunt /i.test(msg)) {\n  command = \"clear_hunt\";\n  payload = msg.replace(/^clear hunt /i, \"\").trim();\n}\n\nreturn [{\n  json: {\n    ...$input.first().json,\n    command,\n    payload,\n    refresh,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        728
+      ],
+      "id": "fc672765-f68a-4a6e-90e8-54a992072834",
+      "name": "Parse Message"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').item.json.apiServerUrl }}/user/{{ $json.from }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1072,
+        456
+      ],
+      "id": "6081327f-53ea-4f26-94bf-3811b8d5ad91",
+      "name": "Check User"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"apiServerUrl\": \"https://bi-api.deniminn.com\"\n}\n",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        400,
+        456
+      ],
+      "id": "238bbf9f-5a57-4d78-b953-985a679d97f7",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').item.json.apiServerUrl }}/user/{{ $('Extract Message').item.json.from }}/state",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"state\": \"awaiting_name\" }",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1520,
+        324
+      ],
+      "id": "f4897537-3f0a-41b3-a198-7110c33d2a7a",
+      "name": "Set Awaiting State"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "1142715775582624",
+        "recipientPhoneNumber": "={{ $json.phone }}",
+        "textBody": "Hey! 👋 Welcome — I'm your Amazon Private Label advisor bot.\n\nBefore we dive in, what should I call you?",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1808,
+        324
+      ],
+      "id": "ba544233-2688-44b5-bd10-cd68128fe148",
+      "name": "Ask Name",
+      "webhookId": "cc2042d4-5b06-426a-a534-2f10f1584299",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "pU0a5QlZlEt6xXux",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.state }}",
+                    "rightValue": "awaiting_name",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "347057dc-45e3-4085-9f26-211a9b2c5512"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Awaiting"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "94ee14fd-1ba7-48f8-9936-751035d631ca",
+                    "leftValue": "={{ $json.exists }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "New User"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1296,
+        440
+      ],
+      "id": "5974c906-a4e1-41da-bd95-5b29fbd47f7f",
+      "name": "User Route"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.apiServerUrl }}/user",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"phone\": \"{{ $('Extract Message').item.json.from }}\", \"name\": \"{{ $('Extract Message').item.json.text }}\" }",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1520,
+        -144
+      ],
+      "id": "62b42661-eb6f-41ea-8f52-510c9ccb78bf",
+      "name": "Save Name"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "1142715775582624",
+        "recipientPhoneNumber": "={{ $('Extract Message').item.json.from }}",
+        "textBody": "={{ $json.content.first().text }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        -144
+      ],
+      "id": "e0a31f55-ffd1-4b51-ba1c-68ef3476b0c6",
+      "name": "Send Welcome",
+      "webhookId": "8cabdceb-6ee4-40c9-a551-005a48848d91",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "pU0a5QlZlEt6xXux",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "db58993c-0dcd-404b-9769-78f56b426dad",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        848,
+        456
+      ],
+      "id": "36e81f78-5e05-4665-ae4b-86a0174aaf3b",
+      "name": "If Skip"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').item.json.apiServerUrl }}/help",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2448,
+        0
+      ],
+      "id": "f91f62ad-96a4-4d06-a26c-3aabd2e5c4bb",
+      "name": "Get Help"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d8126b16-8a93-47c5-9950-9ec9611250eb",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "help",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Help"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "asin",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "71105802-d582-4608-9777-23706aca5608"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Asin"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d24377f5-2783-4c82-b92d-c2fc351a3688",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "hunt",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Hunt"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "62c3afd9-7319-46a1-ad28-0969f2294fc0",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "clear_asin",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Clear Asin"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d742e1d5-ba57-40a9-bfcc-fd83726ecb83",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "clear_hunt",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Clear Hunt"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "13a544a4-f37f-4522-9780-b26cb8a8ad7b",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "clear_all",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Clear All"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1808,
+        648
+      ],
+      "id": "fde94b9e-8227-4431-8fb2-2eccacbf3254",
+      "name": "Command Router"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-4-5-20251001"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=The user just told you their name is \"{{ $json.name }}\".\n\nWelcome them warmly and personally by name. Tell them you're their Amazon Private Label advisor.\nKeep it to 3 lines max. Be human and varied. \nMessage should be in whatsapp style format to be send as whatsapp message. Make the name in bold style. with single *\nStart a 1 new line after hey name.\n\nEnd with exactly this line (do not change it and):\n\\nType *help* to see what I can do 👇\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        -144
+      ],
+      "id": "af21b715-c14b-40e7-9a0e-3fd54a3b980c",
+      "name": "Welcome message",
+      "credentials": {
+        "anthropicApi": {
+          "id": "qtlyAJqSxTr1E8Zx",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Extract Message').item.json.text }}",
+        "options": {
+          "systemMessage": "=The user's name is {{ $json.name }}. Address them by name naturally — not every message, just when it feels right.\n\nYou are Ali, a friendly Amazon Private Label advisor. You help sellers find winning products, evaluate ASINs, and build profitable FBA businesses.\n\nPersonality: warm, casual, conversational — like a knowledgeable friend. Vary your greetings every time. Keep replies concise — this is WhatsApp.\n\nWhen relevant, remind them they can use: asin <ASIN>, hunt <keyword>, or help.",
+          "enableStreaming": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        2096,
+        720
+      ],
+      "id": "a302978e-abc9-4c8d-908b-afe357cfa74a",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 512
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        2168,
+        944
+      ],
+      "id": "66649a95-d287-4a8c-8fd2-112370f1cd5a",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "qtlyAJqSxTr1E8Zx",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"formatted_message\": '{{ $json.output }}'\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2448,
+        824
+      ],
+      "id": "f09cf800-ffe8-4615-a804-c5ba0a099331",
+      "name": "Format Output"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"formatted_message\": '🔍 Analysing *{{ $('Parse Message').item.json.payload }}*...\\n\\nHang tight, this might take a moment ⏳'\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2160,
+        240
+      ],
+      "id": "0b93390b-72f7-483b-bd3f-7e00eede13e6",
+      "name": "ASIN Waiting Message"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"formatted_message\": '🔎 Hunting *{{ $('Parse Message').item.json.payload }}* products...\\n\\nBear with me, this might take a little while ⏳'\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2160,
+        528
+      ],
+      "id": "8fc1378c-13da-4f47-b161-1101db4de110",
+      "name": "Hunt Waiting Message"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.apiServerUrl }}/asin",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"asin\": \"{{ $('Parse Message').item.json.payload }}\", \"refresh\": {{ $('Parse Message').item.json.refresh }} }\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2448,
+        192
+      ],
+      "id": "a0e0f2d2-4d92-4764-8b86-3baa43a36361",
+      "name": "ASIN",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.apiServerUrl }}/hunt",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"keyword\": \"{{ $('Parse Message').item.json.payload }}\", \"top_n\": 3, \"refresh\": {{ $('Parse Message').item.json.refresh }} }\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2448,
+        580
+      ],
+      "id": "f33cc007-ba94-4e86-91fd-ab21d073a39b",
+      "name": "Hunt",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"formatted_message\": \"😔 Sorry, something went wrong while processing your request.\\n\\nPlease try again later.\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2672,
+        932
+      ],
+      "id": "2775eb7c-4d7c-48b6-9441-234a1ed4a9d8",
+      "name": "Set Error"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        176,
+        456
+      ],
+      "id": "d58c2a67-8b36-43fe-9032-b9bf2cc690fb",
+      "name": "Respond To Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "1142715775582624",
+        "recipientPhoneNumber": "={{ $('Extract Message').item.json.from }}",
+        "textBody": "={{ $json.formatted_message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2448,
+        384
+      ],
+      "id": "3c199701-25c8-4a08-a1fc-a9886278a369",
+      "name": "Send Waiting Message",
+      "webhookId": "71441c8d-5e74-4ca5-a59b-9e8c0aba4153",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "pU0a5QlZlEt6xXux",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "1142715775582624",
+        "recipientPhoneNumber": "={{ $('Extract Message').item.json.from }}",
+        "textBody": "={{ $json.formatted_message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2896,
+        932
+      ],
+      "id": "7b4f57a9-c8a0-4818-a7d8-2e179574a73d",
+      "name": "Send Error",
+      "webhookId": "71441c8d-5e74-4ca5-a59b-9e8c0aba4153",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "pU0a5QlZlEt6xXux",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "1142715775582624",
+        "recipientPhoneNumber": "={{ $('Extract Message').item.json.from }}",
+        "textBody": "={{ $json.formatted_message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2672,
+        688
+      ],
+      "id": "a7541f6d-4a96-4709-82c3-862c62b35bd9",
+      "name": "Send Results",
+      "webhookId": "71441c8d-5e74-4ca5-a59b-9e8c0aba4153",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "pU0a5QlZlEt6xXux",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $('Config').item.json.apiServerUrl }}/cache/asin/{{ $('Parse Message').item.json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2160,
+        1120
+      ],
+      "id": "931f2ad1-1260-4a92-8989-fa630127d642",
+      "name": "Clear Asin"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"formatted_message\": \"{{ $json.message }}\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2448,
+        1312
+      ],
+      "id": "d0b647f5-64da-4e9e-96ce-ffabc83ddae2",
+      "name": "Format Result"
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $('Config').item.json.apiServerUrl }}/cache/hunt/{{ $('Parse Message').item.json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2160,
+        1312
+      ],
+      "id": "f48e0e21-5302-4599-bd13-3927b88f130b",
+      "name": "Clear Hunt"
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $('Config').item.json.apiServerUrl }}/cache/all",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2160,
+        1504
+      ],
+      "id": "b692fcab-23b2-4d9d-b837-3e4a7b228aaa",
+      "name": "Clear All"
+    }
+  ],
+  "pinData": {
+    "WhatsApp Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "bi-n8n.deniminn.com",
+            "user-agent": "facebookexternalua",
+            "content-length": "565",
+            "accept": "*/*",
+            "accept-encoding": "gzip, br",
+            "cdn-loop": "cloudflare; loops=1",
+            "cf-connecting-ip": "2a03:2880:22ff:70::",
+            "cf-ipcountry": "US",
+            "cf-ray": "9f67fd318bc28c84-EWR",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "cf-warp-tag-id": "89b52ac5-f8bb-48dc-b6c5-6e81a6fb7dc4",
+            "connection": "keep-alive",
+            "content-type": "application/json",
+            "x-forwarded-for": "2a03:2880:22ff:70::",
+            "x-forwarded-proto": "https",
+            "x-hub-signature": "sha1=eacf864ba131ec2a7c203a430f19bac898f2c9eb",
+            "x-hub-signature-256": "sha256=c8215e1a59bb09a631a98b27c9f59876eb086f704f8c060ef9cb690403c32b8e"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "object": "whatsapp_business_account",
+            "entry": [
+              {
+                "id": "1257186393164937",
+                "changes": [
+                  {
+                    "value": {
+                      "messaging_product": "whatsapp",
+                      "metadata": {
+                        "display_phone_number": "971555582045",
+                        "phone_number_id": "1142715775582624"
+                      },
+                      "contacts": [
+                        {
+                          "profile": {
+                            "name": "Babar"
+                          },
+                          "wa_id": "971508804621",
+                          "user_id": "AE.27093612293567346"
+                        }
+                      ],
+                      "messages": [
+                        {
+                          "from": "971508804621",
+                          "from_user_id": "AE.27093612293567346",
+                          "id": "wamid.HBgMOTcxNTA4ODA0NjIxFQIAEhgUM0IyNzhENjI5OEFDMDdFOTk5QTQA",
+                          "timestamp": "1777902778",
+                          "text": {
+                            "body": "hunt laptop stand adjustable"
+                          },
+                          "type": "text"
+                        }
+                      ]
+                    },
+                    "field": "messages"
+                  }
+                ]
+              }
+            ]
+          },
+          "webhookUrl": "http://localhost:5678/webhook/whatsapp-pl-hunter",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0,
+          "input": 1
+        }
+      }
+    ]
+  },
+  "connections": {
+    "WhatsApp Webhook": {
+      "main": [
+        [
+          {
+            "node": "Subscribe Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond To Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subscribe Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond to Subscribe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Message": {
+      "main": [
+        [
+          {
+            "node": "If Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Message": {
+      "main": [
+        [
+          {
+            "node": "Command Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check User": {
+      "main": [
+        [
+          {
+            "node": "User Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Extract Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Awaiting State": {
+      "main": [
+        [
+          {
+            "node": "Ask Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "User Route": {
+      "main": [
+        [
+          {
+            "node": "Save Name",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Awaiting State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Name": {
+      "main": [
+        [
+          {
+            "node": "Welcome message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Skip": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Check User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Help": {
+      "main": [
+        [
+          {
+            "node": "Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Command Router": {
+      "main": [
+        [
+          {
+            "node": "Get Help",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ASIN Waiting Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hunt Waiting Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Clear Asin",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Clear Hunt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Clear All",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Welcome message": {
+      "main": [
+        [
+          {
+            "node": "Send Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Output": {
+      "main": [
+        [
+          {
+            "node": "Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ASIN Waiting Message": {
+      "main": [
+        [
+          {
+            "node": "ASIN",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Waiting Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hunt Waiting Message": {
+      "main": [
+        [
+          {
+            "node": "Hunt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Waiting Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ASIN": {
+      "main": [
+        [
+          {
+            "node": "Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hunt": {
+      "main": [
+        [
+          {
+            "node": "Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Error": {
+      "main": [
+        [
+          {
+            "node": "Send Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond To Webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Asin": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Result": {
+      "main": [
+        [
+          {
+            "node": "Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Hunt": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear All": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a09a785c-1dcd-47aa-92bc-7499a146335e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0c9b71fdacd0461cf302bb48f3ad75c7980e825d86220c666b9a80a796be2f53"
+  },
+  "id": "MtATxXsglCnP1gak",
+  "tags": []
+}
